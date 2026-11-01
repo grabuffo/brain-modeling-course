@@ -1,0 +1,712 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body><title>Two Populations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one phone-sized column; each step of the game is one screen (join → card → play → result); the class board is a wide grid. */
+:root {
+  --bg: #eef1f4; --panel: #ffffff; --ink: #121a22; --muted: #5b6875; --line: #d3dae1;
+  --you: #2f4fd8; --partner: #d97a00; --model: #121a22; --good: #16804b; --warn: #b3261e;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e1318; --panel: #161d24; --ink: #e6ecf1; --muted: #93a1ae; --line: #2a343e;
+  --you: #7d95ff; --partner: #ffab3d; --model: #e6ecf1; --good: #4cc38a; --warn: #ff7a70; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0e1318; --panel: #161d24; --ink: #e6ecf1; --muted: #93a1ae; --line: #2a343e;
+  --you: #7d95ff; --partner: #ffab3d; --model: #e6ecf1; --good: #4cc38a; --warn: #ff7a70; color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 400 16px/1.5 var(--body); padding-inline: 16px; padding-block: 12px 32px; }
+main { max-width: 34rem; margin: 0 auto; display: grid; gap: 16px; }
+main.wide { max-width: 72rem; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font: 800 1.6rem/1.1 var(--display); font-stretch: 112%; letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+h2 { font: 700 1.15rem/1.25 var(--display); font-stretch: 105%; margin: 0; text-wrap: balance; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.tag { font: 600 0.72rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+label { display: grid; gap: 4px; font-weight: 600; font-size: 0.9rem; }
+input[type=text] { font: 600 1.1rem var(--mono); padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); width: 100%; text-transform: lowercase; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
+.row > * { flex: 1 1 10rem; }
+button { font: 700 1rem var(--display); font-stretch: 105%; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--ink); background: var(--ink); color: var(--bg); cursor: pointer; }
+button.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+button:disabled { opacity: 0.4; cursor: default; }
+button:focus-visible, input:focus-visible, .strip:focus-visible { outline: 3px solid var(--you); outline-offset: 2px; }
+.status { font: 400 0.85rem var(--mono); color: var(--muted); }
+.status.ok { color: var(--good); } .status.bad { color: var(--warn); }
+/* rule card */
+.card { border: 2px solid var(--ink); border-radius: 12px; padding: 16px; display: grid; gap: 6px; background: var(--panel); }
+.card .name { font: 800 1.9rem/1 var(--display); font-stretch: 120%; }
+.card .rule { font-size: 1.05rem; }
+.card.small { padding: 10px 12px; gap: 2px; }
+.card.small .name { font-size: 1.1rem; }
+.card.small .rule { font-size: 0.85rem; }
+/* play */
+.arena { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.strip { position: relative; height: min(52vh, 26rem); border-radius: 12px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.strip .fill { position: absolute; left: 0; right: 0; bottom: 0; }
+.strip .knob { position: absolute; left: 0; right: 0; height: 4px; transform: translateY(2px); }
+.strip .lab { position: absolute; top: 8px; left: 10px; font: 700 0.8rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.strip .mid { position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--line); }
+#me .fill { background: color-mix(in srgb, var(--you) 28%, transparent); } #me .knob { background: var(--you); } #me .lab { color: var(--you); }
+#them .fill { background: color-mix(in srgb, var(--partner) 28%, transparent); } #them .knob { background: var(--partner); } #them .lab { color: var(--partner); }
+#me { cursor: ns-resize; }
+.clock { font: 600 2.2rem/1 var(--mono); font-variant-numeric: tabular-nums; }
+.big-count { font: 800 4rem/1 var(--display); text-align: center; }
+canvas { width: 100%; display: block; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.85rem; color: var(--muted); }
+.legend i { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 6px; }
+.eq { font: 400 0.8rem/1.6 var(--mono); overflow-x: auto; white-space: pre; background: var(--bg); border-radius: 8px; padding: 10px 12px; }
+.regime { font: 800 1.5rem/1.1 var(--display); font-stretch: 112%; }
+.board { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 760px) { .board { grid-template-columns: 1fr; } }
+.panel { align-content: start; }
+.thumbs { display: grid; align-content: start; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: 10px; }
+.thumb { display: grid; gap: 4px; font: 400 0.75rem var(--mono); color: var(--muted); }
+.thumb canvas { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+a { color: var(--you); }
+[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<main id="app">
+  <header>
+    <h1>Two Populations</h1>
+    <span class="tag" id="modeTag">a game for two</span>
+  </header>
+
+  <!-- 1. join -->
+  <section id="s-join" class="panel">
+    <p>You and a partner each control one population of neurons: your finger sets its activity, from silent (bottom) to fully active (top). Each of you gets a secret rule for reacting to the other. Play for 40 seconds (the game kicks you to new places every 8 seconds), then see which dynamics you created and compare them with the Wilson–Cowan equations for two populations.</p>
+    <div class="row">
+      <label for="cls">Class code<input id="cls" type="text" value="chieti" maxlength="16" autocomplete="off"></label>
+      <label for="pair">Pair number<input id="pair" type="text" placeholder="e.g. 7" maxlength="8" inputmode="numeric" autocomplete="off"></label>
+    </div>
+    <div class="row">
+      <button id="bJoin">Join my partner</button>
+      <button id="bBot" class="ghost">Practise with a robot</button>
+    </div>
+    <p class="status" id="joinStatus">Both of you enter the same class code and pair number.</p>
+    <p class="muted" style="font-size:.85rem">Teacher: <a href="#teacher" id="toTeacher">open the class board</a>.</p>
+  </section>
+
+  <!-- 2. card -->
+  <section id="s-ready" class="panel" hidden>
+    <span class="tag">your secret rule · do not tell your partner</span>
+    <div class="card" id="card"></div>
+    <p class="muted">Slide your finger up or down on your bar; move smoothly. Watch only your partner's bar. Every 8 seconds the game kicks you both to new places: keep following your rule.</p>
+    <p class="status" id="pairStatus">connecting…</p>
+    <button id="bStart" disabled>Start the round</button>
+  </section>
+
+  <!-- 3. play -->
+  <section id="s-play" class="panel" hidden>
+    <div class="row" style="align-items:center">
+      <div class="card small" id="cardSmall"></div>
+      <div style="text-align:right;flex:0 0 auto"><div class="clock" id="clock">40.0</div><span class="tag">seconds</span></div>
+    </div>
+    <div class="arena">
+      <div class="strip" id="me" tabindex="0" aria-label="Your activity: drag up or down, or use the arrow keys"><div class="mid"></div><div class="fill"></div><div class="knob"></div><span class="lab">you</span></div>
+      <div class="strip" id="them" aria-label="Your partner's activity"><div class="mid"></div><div class="fill"></div><div class="knob"></div><span class="lab">partner</span></div>
+    </div>
+    <div class="big-count" id="count" hidden>3</div>
+    <div class="big-count" id="kick" hidden>kick!</div>
+  </section>
+
+  <!-- 4. result -->
+  <section id="s-result" hidden style="display:grid;gap:16px">
+    <div class="panel">
+      <span class="tag" id="revealTag"></span>
+      <div class="regime" id="regimeName"></div>
+      <p id="regimeText"></p>
+      <p class="status" id="didText"></p>
+    </div>
+    <div class="panel">
+      <h2>Your game in the phase plane</h2>
+      <p class="muted" style="font-size:.9rem">Each point is a moment: your activity across, your partner's up. The thin curves are where each of you would stop moving (nullclines); where they cross, the pair can rest.</p>
+      <canvas id="phase" width="360" height="360" aria-label="Phase plane of the round"></canvas>
+      <div class="legend"><span><i style="background:var(--you)"></i>you two</span><span><i style="background:var(--model);height:0;border-top:2px dashed var(--model)"></i>Wilson–Cowan, same start and kicks</span><span><i style="background:var(--muted);height:1px"></i>nullclines</span></div>
+    </div>
+    <div class="panel">
+      <h2>Over time</h2>
+      <canvas id="trace" width="360" height="170" aria-label="Activity over time"></canvas>
+      <div class="legend"><span><i style="background:var(--you)"></i>you</span><span><i style="background:var(--partner)"></i>partner</span><span><i style="height:0;border-top:2px dashed var(--muted)"></i>equations</span></div>
+    </div>
+    <div class="panel">
+      <h2>Your pair as Wilson–Cowan equations</h2>
+      <div class="eq" id="eq"></div>
+      <p class="status" id="rtText"></p>
+      <p class="muted" style="font-size:.9rem">x is your activity, y your partner's. Each population moves towards S(…), an S-shaped response from 0 to 1 to the other population's activity, seen with a delay. The sign comes from your cards: + (Copycat) means the partner excites you, − (Contrarian) means it inhibits you. Nothing is fitted: the equations only take your reaction times from the round. Take the delays away and the copy–oppose pair stops oscillating.</p>
+      <p class="status" id="boardStatus"></p>
+      <div class="row">
+        <button id="bAgain">Play again, new start</button>
+        <button id="bNewCards" class="ghost">New secret rules</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- teacher -->
+  <section id="s-teacher" hidden style="display:grid;gap:16px">
+    <div class="panel">
+      <div class="row" style="align-items:end">
+        <label for="tcls">Class code<input id="tcls" type="text" value="chieti" maxlength="16"></label>
+        <button id="bBoard" style="flex:0 0 auto">Open the board</button>
+        <button id="bClear" class="ghost" style="flex:0 0 auto" hidden>Clear the board</button>
+      </div>
+      <p class="status" id="teacherStatus">Results appear here when pairs finish a round. Use a new class code for each class, or clear the board before starting.</p>
+    </div>
+    <div class="board">
+      <div class="panel">
+        <h2>Every pair, by their rules</h2>
+        <p class="muted" style="font-size:.9rem">Each square is one regime of the Wilson–Cowan pair. Filled dot: the pair found it; empty: not yet.</p>
+        <canvas id="scatter" width="700" height="700" aria-label="Every pair placed by its two rules"></canvas>
+      </div>
+      <div class="panel">
+        <h2>Their games</h2>
+        <div class="thumbs" id="thumbs"><p class="muted">No rounds yet.</p></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js"></script>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const S = (u) => 1 / (1 + Math.exp(-u));
+const clamp = (v) => Math.min(1, Math.max(0, v));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 16);
+const DT = 0.1, ROUND = 40, PREFIX = "tp26";
+
+const CARDS = {
+  copy: { name: "Copycat", rule: "When your partner is high, slowly move up. When your partner is low, slowly move down.", role: "receives excitation" },
+  oppose: { name: "Contrarian", rule: "When your partner is high, slowly move down. When your partner is low, slowly move up.", role: "receives inhibition" },
+};
+const drawCard = () => (Math.random() < 0.5 ? "copy" : "oppose");
+
+const G = { mode: null, net: null, card: drawCard(), partnerCard: null, x: 0.5, y: 0.5,
+            rec: [], phase: "idle", timers: [], bot: null, partnerOnline: false };
+
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function show(id) { for (const s of document.querySelectorAll("main > section")) s.hidden = s.id !== id;
+  $("#app").classList.toggle("wide", id === "s-teacher"); }
+function setStatus(el, text, kind) { el.textContent = text; el.className = "status" + (kind ? " " + kind : ""); }
+
+// ------------------------------------------------------------------ transport
+// One interface for both ways of connecting: {role, send(msg), sendResult(res), close()}.
+// claude.ai viewer -> the `room` capability; anywhere else (GitHub Pages) -> a public MQTT broker over secure WebSocket
+// (works on any phone network; the messages are only slider values and fitted numbers).
+let roomNS = null;
+const roomReady = (window.claude && typeof window.claude.use === "function")
+  ? window.claude.use("room").then((r) => (roomNS = r)).catch(() => null) : Promise.resolve(null);
+
+async function connectRoom(cls, pair, onMsg, onState) {
+  const r = await roomNS.join(`${cls}-${pair}`);
+  await sleep(1500);                                         // let the room report who is already here
+  const others = r.peers().filter((p) => !p.isMe && p.presence && p.presence.role);
+  if (others.length >= 2) throw new Error("full");
+  const role = others.some((p) => p.presence.role === "a") ? "b" : "a";
+  let seq = 0; const seen = {};
+  await r.presence({ role });
+  const read = (peers) => {
+    const p = peers.find((q) => !q.isMe && q.presence && q.presence.role);
+    onState(!!p);
+    if (!p) return;
+    for (const [k, v] of Object.entries(p.presence)) {
+      if (!v || typeof v !== "object" || typeof v.seq !== "number") continue;
+      const key = p.peer + k;
+      if (seen[key] === v.seq) continue;
+      seen[key] = v.seq; onMsg(v.m);
+    }
+  };
+  r.onPeers((ch) => read(ch.peers));
+  read(r.peers());
+  return {
+    role,
+    send: (m) => r.presence({ [m.t]: { seq: ++seq, m } }).catch(() => {}),
+    sendResult: async (res) => { await roomNS.presence({ result: res }); return true; },
+    close: () => r.leave(),
+  };
+}
+
+// Connect to every broker that answers and use them all: two phones meet as long as they share one working broker.
+const BROKERS = ["wss://broker.emqx.io:8084/mqtt", "wss://broker.hivemq.com:8884/mqtt"];
+function mqttOne(url) {
+  return new Promise((resolve) => {
+    const c = mqtt.connect(url, { connectTimeout: 6000, reconnectPeriod: 2000, clean: true });
+    let done = false;
+    const finish = (ok) => { if (done) return; done = true; clearTimeout(t); if (!ok) c.end(true); resolve(ok ? c : null); };
+    const t = setTimeout(() => finish(false), 7000);
+    c.once("connect", () => finish(true));
+    c.once("error", () => finish(false));
+  });
+}
+async function mqttConnect() {
+  const clients = (await Promise.all(BROKERS.map(mqttOne))).filter(Boolean);
+  if (!clients.length) throw new Error("nobroker");
+  return {
+    subscribe: (topic) => clients.forEach((c) => c.subscribe(topic)),
+    onMessage: (fn) => clients.forEach((c) => c.on("message", fn)),
+    publish: (topic, payload, opts) => Promise.all(clients.map((c) => new Promise((r) => c.publish(topic, payload, opts || {}, (err) => r(!err)))))
+      .then((oks) => oks.some(Boolean)),
+    end: () => clients.forEach((c) => c.end(true)),
+  };
+}
+
+async function connectMqtt(cls, pair, onMsg, onState) {
+  const c = await mqttConnect(), me = Math.random().toString(36).slice(2, 10), topic = `${PREFIX}/${cls}/${pair}`;
+  const others = new Map();                                   // partner id -> last time heard
+  const lastN = new Map();                                    // partner id -> last message number (drops copies from the 2nd broker)
+  let n = 0;
+  c.subscribe(topic);
+  c.onMessage((tp, buf) => {
+    if (tp !== topic) return;
+    let m; try { m = JSON.parse(buf.toString()); } catch { return; }
+    if (!m || typeof m.from !== "string" || m.from === me || typeof m.n !== "number") return;
+    if (m.n <= (lastN.get(m.from) ?? -1)) return;
+    lastN.set(m.from, m.n);
+    const isNew = !others.has(m.from); others.set(m.from, Date.now());
+    if (isNew) onState(true);
+    if (m.t !== "hello") onMsg(m);
+  });
+  const send = (m) => c.publish(topic, JSON.stringify({ ...m, from: me, n: n++ }));
+  send({ t: "hello" });
+  const beat = setInterval(() => {
+    send({ t: "hello" });
+    const now = Date.now();
+    for (const [id, t] of others) if (now - t > 7000) { others.delete(id); lastN.delete(id); }
+    onState(others.size > 0);
+  }, 2000);
+  await sleep(2500);
+  if (others.size >= 2) { clearInterval(beat); c.end(); throw new Error("full"); }
+  return {
+    get role() { const p = [...others.keys()][0]; return !p || me < p ? "a" : "b"; },
+    send,
+    sendResult: (res) => c.publish(`${PREFIX}/${cls}/results/${pair}`, JSON.stringify(res), { qos: 1, retain: true }),
+    close: () => { clearInterval(beat); c.end(); },
+  };
+}
+
+// ------------------------------------------------------------------ messages
+function onMsg(m) {
+  if (!m || typeof m !== "object") return;
+  if (m.t === "x" && typeof m.v === "number") { G.y = clamp(m.v); if (CARDS[m.c]) G.partnerCard = m.c; paintStrips(); }
+  else if (m.t === "card" && CARDS[m.id]) { G.partnerCard = m.id; }
+  else if (m.t === "kick" && typeof m.yours === "number" && typeof m.mine === "number") applyKick(clamp(m.yours), clamp(m.mine));
+  else if (m.t === "start" && typeof m.yours === "number" && typeof m.mine === "number") {
+    if (G.phase !== "playing" && G.phase !== "countdown") beginRound(clamp(m.yours), clamp(m.mine));
+  }
+}
+function onPairState(online) {
+  const changed = online !== G.partnerOnline;
+  G.partnerOnline = online;
+  if (changed && online && G.net) G.net.send({ t: "card", id: G.card });
+  if (G.mode === "net") renderPair();
+}
+function renderPair() {
+  setStatus($("#pairStatus"), G.partnerOnline ? "Partner connected." : "Waiting for your partner to join…", G.partnerOnline ? "ok" : "");
+  $("#bStart").disabled = !G.partnerOnline;
+}
+
+// ------------------------------------------------------------------ screens
+function renderCards() {
+  const c = CARDS[G.card];
+  $("#card").innerHTML = `<span class="name"></span><span class="rule"></span>`;
+  $("#card .name").textContent = c.name; $("#card .rule").textContent = c.rule;
+  $("#cardSmall").innerHTML = `<span class="name"></span><span class="rule"></span>`;
+  $("#cardSmall .name").textContent = c.name; $("#cardSmall .rule").textContent = c.rule;
+}
+
+$("#bJoin").onclick = async () => {
+  const cls = slug($("#cls").value), pair = slug($("#pair").value);
+  const st = $("#joinStatus");
+  if (!cls || !pair) return setStatus(st, "Enter a class code and a pair number.", "bad");
+  setStatus(st, "Connecting…");
+  $("#bJoin").disabled = true;
+  try {
+    await roomReady;
+    if (roomNS) { G.net = await connectRoom(cls, pair, onMsg, onPairState); $("#modeTag").textContent = `pair ${pair} · claude.ai room`; }
+    else if (window.mqtt && !(window.claude && typeof window.claude.use === "function")) {
+      G.net = await connectMqtt(cls, pair, onMsg, onPairState); $("#modeTag").textContent = `pair ${pair}`;
+    } else throw new Error("nonet");
+    G.mode = "net"; G.phase = "ready"; renderCards(); show("s-ready"); renderPair();
+    if (G.partnerOnline) G.net.send({ t: "card", id: G.card });
+  } catch (e) {
+    const msg = e && e.message === "full"
+      ? "This pair already has two players. Pick another number."
+      : e && e.message === "nonet" ? "Playing with a partner needs the course link. You can practise with the robot."
+      : "Could not connect. Check the connection and try again, or practise with the robot.";
+    setStatus(st, msg, "bad");
+  } finally { $("#bJoin").disabled = false; }
+};
+
+$("#bBot").onclick = () => {
+  G.mode = "bot"; G.phase = "ready"; G.partnerCard = drawCard();
+  G.bot = { m: 4, tau: 0.8 };
+  $("#modeTag").textContent = "practice · robot partner";
+  renderCards(); show("s-ready"); setStatus($("#pairStatus"), "Your partner is a robot with its own secret rule.", "ok");
+  $("#bStart").disabled = false;
+};
+
+$("#bStart").onclick = () => {
+  const mine = 0.15 + 0.7 * Math.random(), yours = 0.15 + 0.7 * Math.random();
+  if (G.mode === "net") G.net.send({ t: "start", mine, yours });
+  beginRound(mine, yours);
+};
+
+// ------------------------------------------------------------------ the round
+function paintStrips() {
+  for (const [id, v] of [["#me", G.x], ["#them", G.y]]) {
+    const el = $(id);
+    el.querySelector(".fill").style.height = (v * 100).toFixed(1) + "%";
+    el.querySelector(".knob").style.bottom = (v * 100).toFixed(1) + "%";
+  }
+}
+function setX(v) { if (G.phase !== "playing") return; G.x = clamp(v); paintStrips(); }
+(() => {
+  // relative dragging: the finger moves the level up or down from where it is, so a kick is not undone by the finger
+  const me = $("#me"); let dragging = false, y0 = 0, x0 = 0;
+  const anchor = (e) => { y0 = e.clientY; x0 = G.x; G.reanchor = false; };
+  me.addEventListener("pointerdown", (e) => { dragging = true; me.setPointerCapture(e.pointerId); anchor(e); });
+  me.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    if (G.reanchor) anchor(e);
+    setX(x0 + (y0 - e.clientY) / me.getBoundingClientRect().height);
+  });
+  me.addEventListener("pointerup", () => (dragging = false));
+  me.addEventListener("pointercancel", () => (dragging = false));
+  me.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowUp") { setX(G.x + 0.03); e.preventDefault(); }
+    if (e.key === "ArrowDown") { setX(G.x - 0.03); e.preventDefault(); }
+  });
+})();
+
+function clearTimers() { G.timers.forEach(clearInterval); G.timers = []; }
+
+async function beginRound(x0, y0) {
+  clearTimers();
+  G.phase = "countdown"; G.x = x0; G.y = y0; G.rec = []; G.kicks = [];
+  show("s-play"); paintStrips();
+  $("#clock").textContent = ROUND.toFixed(1);
+  const cnt = $("#count"); cnt.hidden = false;
+  for (const n of [3, 2, 1]) { cnt.textContent = n; await sleep(1000); }
+  cnt.hidden = true; G.phase = "playing"; $("#me").focus({ preventScroll: true });
+  const t0 = performance.now();
+  G.timers.push(setInterval(() => { if (G.mode === "net") G.net.send({ t: "x", v: +G.x.toFixed(3), c: G.card }); }, 50));
+  G.timers.push(setInterval(() => {
+    if (G.mode === "bot") stepBot();
+    const host = G.mode === "bot" || G.net.role === "a";
+    if (host && KICKS.includes(G.rec.length)) {                // the host kicks both players to new places
+      const [mine, yours] = kickPositions(KICKS.indexOf(G.rec.length));
+      if (G.mode === "net") G.net.send({ t: "kick", mine, yours });
+      applyKick(mine, yours);
+    }
+    G.rec.push([G.x, G.y]);
+    const left = ROUND - (performance.now() - t0) / 1000;
+    $("#clock").textContent = Math.max(0, left).toFixed(1);
+    if (left <= 0 || G.rec.length >= ROUND / DT) endRound();
+  }, DT * 1000));
+}
+
+const KICKS = [80, 160, 240, 320];                         // samples (8, 16, 24, 32 s)
+// kicks alternate: opposite sides of the middle, then the same side, so every pair has something to resolve
+function kickPositions(j) {
+  const lowV = () => 0.12 + 0.25 * Math.random(), highV = () => 0.63 + 0.25 * Math.random(), flip = Math.random() < 0.5;
+  if (j % 2 === 1) return flip ? [lowV(), lowV()] : [highV(), highV()];
+  return flip ? [lowV(), highV()] : [highV(), lowV()];
+}
+function applyKick(x, y) {
+  if (G.phase !== "playing") return;
+  G.x = x; G.y = y; G.reanchor = true; G.kicks.push(G.rec.length); paintStrips();
+  const k = $("#kick"); k.hidden = false; setTimeout(() => (k.hidden = true), 900);
+}
+
+function stepBot() {                                       // the robot is one Wilson–Cowan population with its own rule
+  const b = G.bot, h = G.rec, xd = h.length > b.m ? h[h.length - 1 - b.m][0] : G.x;
+  G.y = clamp(G.y + DT * wcRate(G.y, xd, G.partnerCard, b.tau) + 0.02 * (Math.random() - 0.5));
+  paintStrips();
+}
+
+// ------------------------------------------------------------------ the model: a Wilson–Cowan pair with a delay
+// Each player is one population. Its activity relaxes towards an S-shaped response to the partner's activity, which it
+// sees with a delay d (the reaction time):
+//   τ · dx/dt = −x + S( ±w · [y(t − d) − ½] )
+// +w (Copycat): the partner excites you; −w (Contrarian): the partner inhibits you. Nothing is fitted: the cards set the
+// signs, w and τ are fixed, and d is measured from the round.
+const WC = { w: 10, tau: 1.0 };
+const sign = (card) => (card === "copy" ? 1 : -1);
+function wcRate(self, partnerDelayed, card, tau = WC.tau) { return (-self + S(sign(card) * WC.w * (partnerDelayed - 0.5))) / tau; }
+function simulate(cx, cy, mx, my, x0, y0, n, resets) {     // resets: {index: [x, y]}, the same kicks as in the game
+  const X = [x0], Y = [y0];
+  for (let i = 0; i < n - 1; i++) {
+    if (resets && resets[i + 1]) { X.push(resets[i + 1][0]); Y.push(resets[i + 1][1]); continue; }
+    const yd = Y[Math.max(0, i - mx)], xd = X[Math.max(0, i - my)];
+    X.push(clamp(X[i] + DT * wcRate(X[i], yd, cx)));
+    Y.push(clamp(Y[i] + DT * wcRate(Y[i], xd, cy)));
+  }
+  return { X, Y };
+}
+function corr(a, b) {
+  const n = a.length, ma = a.reduce((s, v) => s + v, 0) / n, mb = b.reduce((s, v) => s + v, 0) / n;
+  let sab = 0, saa = 0, sbb = 0;
+  for (let i = 0; i < n; i++) { sab += (a[i] - ma) * (b[i] - mb); saa += (a[i] - ma) ** 2; sbb += (b[i] - mb) ** 2; }
+  return saa && sbb ? sab / Math.sqrt(saa * sbb) : 0;
+}
+function reactionTime(X, Y, card, kicks) {
+  // the delay at which your speed best matches the model's push from your partner; r = how closely you followed the rule
+  let best = { m: 5, r: 0 };
+  for (let m = 1; m <= 15; m++) {
+    const v = [], push = [];
+    for (let i = m + 1; i < X.length - 1; i++) {
+      if (kicks.some((k) => k > i - m - 1 && k <= i + 1)) continue;
+      v.push(X[i + 1] - X[i - 1]); push.push(S(sign(card) * WC.w * (Y[i - m] - 0.5)) - X[i]);
+    }
+    if (v.length < 30) continue;
+    const r = corr(v, push);
+    if (r > best.r) best = { m, r };
+  }
+  return best;
+}
+function modelRegime(cx, cy, mx, my) {
+  // what the two equations do on their own, from several starting points (5 minutes each: with long delays,
+  // two Copycats can swap sides for a while before they settle)
+  let amp = 0;
+  for (const [x0, y0] of [[0.1, 0.1], [0.9, 0.9], [0.1, 0.9], [0.9, 0.1], [0.3, 0.6], [0.6, 0.3]]) {
+    const { X, Y } = simulate(cx, cy, mx, my, x0, y0, 3000), tail = (A) => A.slice(2800);
+    amp = Math.max(amp, Math.max(...tail(X)) - Math.min(...tail(X)) + Math.max(...tail(Y)) - Math.min(...tail(Y)));
+  }
+  if (amp > 0.3) return "osc";
+  if (cx === cy) return cx === "copy" ? "bistable" : "wta";
+  return "damped";
+}
+function observedRegime(X, Y, kicks) {
+  // what you two did: count full swings across the middle, and where you ended before each kick
+  const swings = (A) => { let side = 0, n = 0; for (const v of A) { const s = v > 0.6 ? 1 : v < 0.4 ? -1 : 0; if (s && side && s !== side) n++; if (s) side = s; } return n; };
+  const ends = { together: 0, apart: 0, middle: 0 }; let sx = 0, sy = 0;
+  for (const [a, b] of segments(X.length, kicks)) {
+    sx += swings(X.slice(a + 5, b)); sy += swings(Y.slice(a + 5, b));
+    const k = Math.min(20, b - a), mean = (A) => A.slice(b - k, b).reduce((s, v) => s + v, 0) / k, ex = mean(X), ey = mean(Y);
+    if (Math.abs(ex - 0.5) < 0.15 && Math.abs(ey - 0.5) < 0.15) ends.middle++;
+    else if ((ex - 0.5) * (ey - 0.5) > 0) ends.together++; else ends.apart++;
+  }
+  if (sx >= 3 && sy >= 3) return "osc";
+  const top = Object.entries(ends).sort((p, q) => q[1] - p[1])[0][0];
+  return { together: "bistable", apart: "wta", middle: "damped" }[top];
+}
+const REGIMES = {
+  osc: { name: "Oscillation", did: "you chased each other round and round",
+    text: "One of you excites, the other inhibits, and each reacts with a delay: the pair never settles and keeps cycling. Without the delay the same two equations would spiral into a resting point; your reaction time turns the spiral into a rhythm (a Hopf bifurcation). In the cortex, excitatory and inhibitory populations coupled through synaptic delays generate the gamma rhythm." },
+  damped: { name: "Damped oscillation", did: "you met in the middle",
+    text: "One of you excites, the other inhibits, but the reactions are so fast that the swings shrink and the pair spirals into a resting point. With a longer delay the spiral would turn into a lasting rhythm (a Hopf bifurcation)." },
+  bistable: { name: "Bistability: up and down states", did: "you ended together, both high or both low",
+    text: "You excite each other, so you end both high or both low, depending on where the kick put you. Mutually exciting populations have two stable states, like the up and down states of the cortex in deep sleep." },
+  wta: { name: "Winner takes all", did: "you split: one high, one low",
+    text: "You inhibit each other, so one ends high and the other low, and the kick decides who wins. Mutual inhibition makes circuits choose one option and suppress the other, as in decision making." },
+};
+
+function endRound() {
+  if (G.phase !== "playing") return;
+  clearTimers(); G.phase = "done";
+  const X = G.rec.map((r) => r[0]), Y = G.rec.map((r) => r[1]);
+  const kicks = G.kicks.slice(), resets = {};
+  kicks.forEach((k) => { if (k < X.length) resets[k] = [X[k], Y[k]]; });
+  const cx = G.card, cy = G.partnerCard || null;
+  const seen = observedRegime(X, Y, kicks);
+  show("s-result");
+  $("#revealTag").textContent = `you: ${CARDS[cx].name} · partner: ${cy ? CARDS[cy].name : "unknown"}`;
+  if (!cy) {
+    G.last = { X, Y, cx, cy, seen, regime: null };
+    $("#regimeName").textContent = "Your partner's rule did not arrive";
+    $("#regimeText").textContent = "Without both rules the equations cannot be written. Play again.";
+    $("#didText").textContent = ""; $("#eq").textContent = "";
+    drawPhase($("#phase"), X, Y, cx, null, null, kicks); drawTrace($("#trace"), X, Y, null, kicks);
+    return;
+  }
+  const rx = reactionTime(X, Y, cx, kicks), ry = reactionTime(Y, X, cy, kicks);
+  const sim = simulate(cx, cy, rx.m, ry.m, X[0], Y[0], X.length, resets);
+  const regime = modelRegime(cx, cy, rx.m, ry.m), R = REGIMES[regime], found = seen === regime;
+  G.last = { X, Y, cx, cy, rx, ry, sim, regime, seen, found };
+  const mech = `${cx === "copy" ? "Your partner excites you" : "Your partner inhibits you"}; ${cy === "copy" ? "you excite your partner" : "you inhibit your partner"}.`;
+  $("#regimeName").textContent = R.name;
+  $("#regimeText").textContent = mech + " " + R.text;
+  const did = $("#didText");
+  did.textContent = found ? `What you two did: ${R.did}. ✓ Just like the equations.`
+    : `What you two did: ${REGIMES[seen].did}. The equations predict: ${R.did}. Play again and follow your rule closely.`;
+  did.className = "status " + (found ? "ok" : "");
+  const sg = (c) => (c === "copy" ? "+" : "−"), ms = (m) => (m * DT).toFixed(1);
+  $("#eq").textContent =
+    `you (${CARDS[cx].name}):\n  τ·dx/dt = −x + S(${sg(cx)}${WC.w}·[y(t−${ms(rx.m)}) − ½])\n` +
+    `partner (${CARDS[cy].name}):\n  τ·dy/dt = −y + S(${sg(cy)}${WC.w}·[x(t−${ms(ry.m)}) − ½])\n` +
+    `τ = ${WC.tau} s;  delays = your reaction times`;
+  $("#rtText").textContent = (rx.r < 0.2 || ry.r < 0.2)
+    ? "One of you barely followed the rule, so that reaction time is only a guess."
+    : `Your reaction time: ${ms(rx.m)} s. Your partner's: ${ms(ry.m)} s.`;
+  drawPhase($("#phase"), X, Y, cx, cy, sim, kicks);
+  drawTrace($("#trace"), X, Y, sim, kicks);
+  submitResult();
+}
+
+async function submitResult() {
+  const st = $("#boardStatus");
+  if (G.mode !== "net") return setStatus(st, "Practice round: not sent to the class board.");
+  if (G.net.role !== "a") return setStatus(st, "Your partner's phone sends this round to the class board.");
+  const { X, Y, cx, cy, rx, ry, regime, seen, found } = G.last, step = Math.ceil(X.length / 80);
+  if (!regime) return setStatus(st, "Not sent: your partner's rule is missing.");
+  const traj = []; for (let i = 0; i < X.length; i += step) traj.push([+X[i].toFixed(2), +Y[i].toFixed(2)]);
+  const res = { pair: slug($("#pair").value), cards: [cx, cy], regime, seen, found, d: [rx.m * DT, ry.m * DT], traj, at: Date.now() };
+  setStatus(st, "Sending to the class board…");
+  const ok = await G.net.sendResult(res).catch(() => false);
+  setStatus(st, ok ? "Sent to the class board." : "The class board is not open; nothing was sent.", ok ? "ok" : "");
+}
+
+$("#bAgain").onclick = () => { show("s-ready"); if (G.mode === "net") renderPair(); };
+$("#bNewCards").onclick = () => {
+  G.card = drawCard(); G.partnerCard = G.mode === "bot" ? drawCard() : null;
+  if (G.mode === "net" && G.partnerOnline) G.net.send({ t: "card", id: G.card });
+  renderCards(); show("s-ready"); if (G.mode === "net") renderPair();
+};
+
+// ------------------------------------------------------------------ drawing
+function prep(cv) {
+  const ctx = cv.getContext("2d"), dpr = window.devicePixelRatio || 1, w = cv.width, h = cv.height;
+  if (!cv.dataset.base) cv.dataset.base = w + "x" + h;
+  const [bw, bh] = cv.dataset.base.split("x").map(Number);
+  cv.width = bw * dpr; cv.height = bh * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, bw, bh); return { ctx, w: bw, h: bh };
+}
+function line(ctx, pts, color, width, dash) {
+  ctx.beginPath(); ctx.setLineDash(dash || []); ctx.strokeStyle = color; ctx.lineWidth = width;
+  pts.forEach(([a, b], i) => (i ? ctx.lineTo(a, b) : ctx.moveTo(a, b))); ctx.stroke(); ctx.setLineDash([]);
+}
+function segments(n, kicks) {                              // index ranges between kicks
+  const cuts = [0, ...kicks.filter((k) => k > 0 && k < n), n], out = [];
+  for (let j = 0; j < cuts.length - 1; j++) out.push([cuts[j], cuts[j + 1]]);
+  return out;
+}
+function drawPhase(cv, X, Y, cx, cy, sim, kicks) {
+  const { ctx, w, h } = prep(cv), pad = 34, s = (v) => pad + v * (w - 2 * pad), t = (v) => h - pad - v * (h - 2 * pad);
+  ctx.strokeStyle = css("--line"); ctx.lineWidth = 1; ctx.strokeRect(pad, pad, w - 2 * pad, h - 2 * pad);
+  ctx.fillStyle = css("--muted"); ctx.font = "11px " + css("--mono");
+  ctx.textAlign = "center"; ctx.fillText("you → active", w / 2, h - 8);
+  ctx.save(); ctx.translate(12, h / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("partner → active", 0, 0); ctx.restore();
+  ctx.fillText("0", pad, h - pad + 13); ctx.fillText("1", w - pad, h - pad + 13);
+  const grid = Array.from({ length: 401 }, (_, i) => i / 400);
+  // nullclines: you stop moving where x = S(±w·(y − ½)); your partner stops where y = S(±w·(x − ½))
+  line(ctx, grid.map((o) => [s(S(sign(cx) * WC.w * (o - 0.5))), t(o)]), css("--you"), 1.2, [2, 4]);
+  if (cy) line(ctx, grid.map((o) => [s(o), t(S(sign(cy) * WC.w * (o - 0.5)))]), css("--partner"), 1.2, [2, 4]);
+  for (const [a, b] of segments(X.length, kicks)) {
+    if (sim) line(ctx, sim.X.slice(a, b).map((x, i) => [s(x), t(sim.Y[a + i])]), css("--model"), 1.5, [5, 4]);
+    line(ctx, X.slice(a, b).map((x, i) => [s(x), t(Y[a + i])]), css("--you"), 2);
+  }
+  for (const [px, py, fill] of [[X[0], Y[0], false], [X[X.length - 1], Y[Y.length - 1], true]]) {
+    ctx.beginPath(); ctx.arc(s(px), t(py), 5, 0, 2 * Math.PI); ctx.lineWidth = 2; ctx.strokeStyle = css("--you");
+    ctx.fillStyle = fill ? css("--you") : css("--panel"); ctx.fill(); ctx.stroke();
+  }
+  ctx.fillStyle = css("--muted"); ctx.textAlign = "left";
+  ctx.fillText("○ start   ● end   (kicks start a new line)", pad + 6, pad + 14);
+}
+function drawTrace(cv, X, Y, sim, kicks) {
+  const { ctx, w, h } = prep(cv), pad = 20, n = X.length, s = (i) => pad + (i / (n - 1)) * (w - 2 * pad), t = (v) => h - pad - v * (h - 2 * pad);
+  ctx.strokeStyle = css("--line"); ctx.lineWidth = 1; ctx.strokeRect(pad, pad, w - 2 * pad, h - 2 * pad);
+  ctx.fillStyle = css("--muted"); ctx.font = "11px " + css("--mono"); ctx.textAlign = "center";
+  for (let sec = 0; sec <= ROUND; sec += 10) ctx.fillText(sec + " s", s(Math.min(n - 1, sec / DT)), h - 5);
+  for (const k of kicks) { line(ctx, [[s(k), t(0)], [s(k), t(1)]], css("--line"), 1); ctx.fillText("kick", s(k), pad - 5); }
+  for (const [a, b] of segments(n, kicks)) {
+    if (sim) {
+      line(ctx, sim.X.slice(a, b).map((v, i) => [s(a + i), t(v)]), css("--you"), 1, [4, 3]);
+      line(ctx, sim.Y.slice(a, b).map((v, i) => [s(a + i), t(v)]), css("--partner"), 1, [4, 3]);
+    }
+    line(ctx, X.slice(a, b).map((v, i) => [s(a + i), t(v)]), css("--you"), 1.8);
+    line(ctx, Y.slice(a, b).map((v, i) => [s(a + i), t(v)]), css("--partner"), 1.8);
+  }
+}
+
+// ------------------------------------------------------------------ class board
+const BOARD = new Map();
+function validResult(r) {
+  return r && typeof r === "object" && Array.isArray(r.cards) && CARDS[r.cards[0]] && CARDS[r.cards[1]] && Array.isArray(r.traj)
+    && typeof r.pair === "string" && r.pair.length <= 16 && REGIMES[r.regime] && REGIMES[r.seen];
+}
+function addResult(r) { if (!validResult(r)) return; BOARD.set(r.pair, r); drawBoard(); }
+function drawBoard() {
+  // one square per pair of cards = one regime of the Wilson–Cowan pair; each dot is a pair, filled if they found the regime
+  const cv = $("#scatter"), { ctx, w, h } = prep(cv), pad = 56, L = w - 2 * pad;
+  const col = (c) => (c === "copy" ? 1 : 0), cell = (cA, cB) => [pad + col(cA) * L / 2, pad + (1 - col(cB)) * L / 2];
+  const label = { "copy,copy": "bistable", "oppose,oppose": "winner takes all", "copy,oppose": "oscillation", "oppose,copy": "oscillation" };
+  const tints = { "copy,copy": "--good", "oppose,oppose": "--warn", "copy,oppose": "--you", "oppose,copy": "--you" };
+  for (const cA of ["oppose", "copy"]) for (const cB of ["oppose", "copy"]) {
+    const [x0, y0] = cell(cA, cB);
+    ctx.globalAlpha = 0.09; ctx.fillStyle = css(tints[cA + "," + cB]); ctx.fillRect(x0, y0, L / 2, L / 2); ctx.globalAlpha = 1;
+    ctx.strokeStyle = css("--line"); ctx.strokeRect(x0, y0, L / 2, L / 2);
+    ctx.fillStyle = css("--muted"); ctx.font = "15px " + css("--mono"); ctx.textAlign = "center";
+    ctx.fillText(label[cA + "," + cB], x0 + L / 4, y0 + 24);
+  }
+  ctx.font = "14px " + css("--mono");
+  ctx.fillText("Contrarian", pad + L / 4, h - pad + 22); ctx.fillText("Copycat", pad + 3 * L / 4, h - pad + 22);
+  ctx.fillText("player A's rule", w / 2, h - 12);
+  ctx.save(); ctx.translate(20, h / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("player B's rule", 0, 0);
+  ctx.fillText("Contrarian", -L / 4, 18); ctx.fillText("Copycat", L / 4, 18); ctx.restore();
+  const counts = {};
+  for (const r of [...BOARD.values()].sort((a, b) => a.at - b.at)) {
+    const key = r.cards.join(","), k = (counts[key] = (counts[key] || 0) + 1) - 1, [x0, y0] = cell(...r.cards);
+    const x = x0 + 40 + (k % 5) * ((L / 2 - 70) / 4), y = y0 + 64 + Math.floor(k / 5) * 44;
+    ctx.beginPath(); ctx.arc(x, y, 9, 0, 2 * Math.PI); ctx.lineWidth = 2.5; ctx.strokeStyle = css("--you");
+    ctx.fillStyle = r.found ? css("--you") : css("--panel"); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = css("--ink"); ctx.font = "600 13px " + css("--mono"); ctx.textAlign = "left"; ctx.fillText(r.pair, x + 12, y + 4);
+  }
+  const box = $("#thumbs"); box.innerHTML = "";
+  if (!BOARD.size) { box.innerHTML = '<p class="muted">No rounds yet.</p>'; return; }
+  for (const r of [...BOARD.values()].sort((a, b) => b.at - a.at)) {
+    const d = document.createElement("div"); d.className = "thumb";
+    const c = document.createElement("canvas"); c.width = 160; c.height = 160;
+    const cap = document.createElement("span");
+    cap.textContent = `pair ${r.pair} · ${REGIMES[r.regime].name.split(":")[0].toLowerCase()} ${r.found ? "✓" : "✗"}`;
+    d.append(c, cap); box.append(d);
+    const p = prep(c);
+    line(p.ctx, r.traj.map(([a, b]) => [10 + a * 140, 150 - b * 140]), css("--you"), 2);
+  }
+}
+
+async function openBoard() {
+  const cls = slug($("#tcls").value), st = $("#teacherStatus");
+  if (!cls) return setStatus(st, "Enter the class code.", "bad");
+  setStatus(st, "Opening…");
+  await roomReady;
+  if (roomNS) {
+    const read = (peers) => peers.forEach((p) => p.presence && addResult(p.presence.result));
+    roomNS.onPeers((ch) => read(ch.peers)); read(roomNS.peers());
+    return setStatus(st, `Board open for class "${cls}" (claude.ai room). Results arrive as pairs finish.`, "ok");
+  }
+  if (!window.mqtt) return setStatus(st, "This page cannot connect here. Open the course link.", "bad");
+  try {
+    const c = await mqttConnect(), base = `${PREFIX}/${cls}/results/`;
+    c.subscribe(base + "+");
+    c.onMessage((tp, buf) => {
+      if (!tp.startsWith(base) || !buf.length) return;
+      try { addResult(JSON.parse(buf.toString())); } catch {}
+    });
+    BOARD_CLEAR = () => { for (const pair of BOARD.keys()) c.publish(base + pair, "", { qos: 1, retain: true }); BOARD.clear(); drawBoard(); };
+    $("#bClear").hidden = false;
+    setStatus(st, `Board open for class "${cls}". Results arrive as pairs finish.`, "ok");
+  } catch (e) {
+    setStatus(st, "Could not open the board. Check the connection.", "bad");
+  }
+}
+let BOARD_CLEAR = null;
+$("#bClear").onclick = () => BOARD_CLEAR && BOARD_CLEAR();
+$("#bBoard").onclick = openBoard;
+
+function route() {
+  if (location.hash === "#teacher") { show("s-teacher"); drawBoard(); }
+  else if (G.phase === "idle") show("s-join");
+}
+window.addEventListener("hashchange", route);
+renderCards(); paintStrips(); route();
+</script>
+</body></html>
