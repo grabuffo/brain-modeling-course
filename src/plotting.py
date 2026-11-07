@@ -73,3 +73,46 @@ def show_movie(anim, save_as=None):
     if animation.writers.is_available("ffmpeg"):
         return HTML(anim.to_html5_video())
     return HTML(anim.to_jshtml())
+
+
+def sheet_movie(t, phases, rates, titles, stride=1, interval=60):
+    """Animate one or more rotator sheets side by side (see networks.rotator_sheet).
+
+    phases: list of arrays (n_t, L, L); rates: list of arrays (n_t,); titles: list of str.
+    Top: each sheet coloured by sin(phi) (bright = the unit is spiking, dark = at rest).
+    Bottom: the firing rate of the whole sheet, with a moving cursor.
+    """
+    import numpy as np
+    from matplotlib import animation
+    n = len(phases)
+    idx = np.arange(0, len(t), stride)
+    fig, ax = plt.subplots(2, n, figsize=(4.2 * n, 5.6), gridspec_kw=dict(height_ratios=[3, 1.1]), squeeze=False)
+    ims, cursors = [], []
+    for j in range(n):
+        im = ax[0, j].imshow(np.sin(phases[j][0]), cmap="magma", vmin=-1, vmax=1, interpolation="nearest")
+        ax[0, j].set_title(titles[j], fontsize=10); ax[0, j].set_xticks([]); ax[0, j].set_yticks([])
+        ax[1, j].plot(t, rates[j], "k", lw=0.8)
+        ax[1, j].set(xlabel="time", ylabel="rate of the sheet", xlim=(t[0], t[-1]))
+        cursors.append(ax[1, j].axvline(t[0], c="C3")); ims.append(im)
+    cb = fig.colorbar(ims[-1], ax=ax[0, :].tolist(), shrink=0.8, pad=0.02)
+    cb.set_label(r"sin $\varphi$  (bright = spike)")
+
+    def update(k):
+        i = idx[k]
+        for j in range(n):
+            ims[j].set_data(np.sin(phases[j][i])); cursors[j].set_xdata([t[i], t[i]])
+        return ims + cursors
+
+    anim = animation.FuncAnimation(fig, update, frames=len(idx), interval=interval, blit=False)
+    plt.close(fig)
+    return anim
+
+
+def sheet_playground():
+    """A live, interactive rotator sheet that runs in the browser (same equations as networks.rotator_sheet,
+    written in JavaScript so that it can run in real time while you move the sliders)."""
+    import uuid
+    from pathlib import Path
+    from IPython.display import HTML
+    html = (Path(__file__).with_name("sheet_playground.html")).read_text()
+    return HTML(html.replace("UID", "sheet-" + uuid.uuid4().hex[:8]))

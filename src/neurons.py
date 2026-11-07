@@ -228,6 +228,14 @@ def inapk_nullclines(V, I, **params):
     return nV, inapk_ninf(V)
 
 
+def inapk_field(V, n, I, **params):
+    """Right-hand side (dV/dt, dn/dt) of the I_Na,p + I_K model at the points (V, n): the flow arrows."""
+    p = {**INAPK, **params}
+    dV = (I - p["gL"] * (V - p["EL"]) - p["gNa"] * inapk_minf(V) * (V - p["ENa"]) - p["gK"] * n * (V - p["EK"])) / p["C"]
+    dn = (inapk_ninf(V) - n) / p["tau_n"]
+    return dV, dn
+
+
 def inapk_steady_current(V, **params):
     """Steady-state I-V curve: the current needed to hold the neuron at rest at voltage V.
     Fixed points of the model are the solutions of I = I_ss(V)."""

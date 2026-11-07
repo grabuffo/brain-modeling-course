@@ -14,8 +14,9 @@ The first run of each simulation takes 10–30 s extra while the code compiles.
 | | 02 · One variable is enough: QIF, theta neuron, active rotator | [open](https://colab.research.google.com/github/grabuffo/brain-modeling-course/blob/main/notebooks/D1_C1_NB02_qif_theta_rotator.ipynb) |
 | **Day 1 · Ch. 2** | 03 · A network of QIF neurons | [open](https://colab.research.google.com/github/grabuffo/brain-modeling-course/blob/main/notebooks/D1_C2_NB03_qif_network.ipynb) |
 | | 04 · A network of active rotators: synchronisation | [open](https://colab.research.google.com/github/grabuffo/brain-modeling-course/blob/main/notebooks/D1_C2_NB04_active_rotator_network.ipynb) |
-| **Day 1 · Ch. 3** | 05 · A population in two equations (Montbrió–Pazó–Roxin) | [open](https://colab.research.google.com/github/grabuffo/brain-modeling-course/blob/main/notebooks/D1_C3_NB05_mpr_mean_field.ipynb) |
-| | 06 · Mean field of the active rotators: exact, and approximate | [open](https://colab.research.google.com/github/grabuffo/brain-modeling-course/blob/main/notebooks/D1_C3_NB06_active_rotator_mean_field.ipynb) |
+| **Day 1 · Ch. 3** | 05 · A crowd of neurons described by two numbers (Montbrió–Pazó–Roxin) | [open](https://colab.research.google.com/github/grabuffo/brain-modeling-course/blob/main/notebooks/D1_C3_NB05_mpr_mean_field.ipynb) |
+| | 06 · A crowd of rotators: regimes, bursts, and a two-number model | [open](https://colab.research.google.com/github/grabuffo/brain-modeling-course/blob/main/notebooks/D1_C3_NB06_active_rotator_mean_field.ipynb) |
+| | 06b · Branching processes: one spike, many neurons, and the value of balance | [open](https://colab.research.google.com/github/grabuffo/brain-modeling-course/blob/main/notebooks/D1_C3_NB06b_branching_processes.ipynb) |
 | **Day 2 · Ch. 4** | 07 · A bifurcation toolkit | [open](https://colab.research.google.com/github/grabuffo/brain-modeling-course/blob/main/notebooks/D2_C4_NB07_bifurcation_toolkit.ipynb) |
 | | 08 · Three roads to synchrony, and where the brain-like avalanches are | [open](https://colab.research.google.com/github/grabuffo/brain-modeling-course/blob/main/notebooks/D2_C4_NB08_hybrid_transitions_avalanches.ipynb) |
 | **Day 2 · Ch. 5** | 09 · A whole-brain model | [open](https://colab.research.google.com/github/grabuffo/brain-modeling-course/blob/main/notebooks/D2_C5_NB09_whole_brain_model.ipynb) |

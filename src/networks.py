@@ -2,6 +2,7 @@
 
 qif_network            all-to-all QIF network of Montbrio, Pazo & Roxin (2015)
 active_rotator_network all-to-all noisy active rotators (Buendia et al. 2021)
+rotator_sheet          the same rotators on a 2D sheet, coupled to their neighbours within a radius R
 """
 import numpy as np
 from numba import njit
@@ -198,3 +199,47 @@ def phase_raster(t, phases, spike_phase=np.pi / 2):
     jumps = np.diff(k, axis=0) > 0
     ti, ii = np.nonzero(jumps)
     return t[ti + 1], ii
+
+
+def rotator_sheet(L=100, omega=1.0, a=1.01, J=2.0, sigma=0.3, R=1, T=200.0, dt=0.02, rec_dt=0.5,
+                  seed=0, phi0=None, spike_phase=np.pi / 2):
+    """Active rotators on an L x L sheet (periodic borders), each coupled to its neighbours.
+
+        dphi_j/dt = omega + a sin(phi_j) + J * mean_{k near j} sin(phi_k - phi_j) + sigma xi_j(t)
+
+    "Near j" = the square of side 2R+1 centred on j. R=None means all-to-all (the whole sheet):
+    exactly the network of active_rotator_network.
+    As in the all-to-all case, the coupling only needs the LOCAL order parameter
+    Z_j = C_j + i S_j = mean_{k near j} e^{i phi_k}:   mean sin(phi_k - phi_j) = S_j cos(phi_j) - C_j sin(phi_j).
+
+    Returns t (n_rec,), phases (n_rec, L, L), rate (n_rec,) = fraction of units that spiked per unit time
+    in each recording interval, and the final phases (to continue a simulation).
+    """
+    from scipy.ndimage import uniform_filter
+    rng = np.random.default_rng(seed)
+    if phi0 is None:                                   # start everyone at rest (or at phase 0 if oscillatory)
+        phi0 = np.full((L, L), np.pi + np.arcsin(omega / a) if a > omega else 0.0)
+    phi = np.array(phi0, dtype=float)
+    every = max(1, int(round(rec_dt / dt)))
+    n_steps = int(round(T / dt))
+    t_rec, ph_rec, rate = [], [], []
+    top = phi.copy()                                   # running maximum: count each spike once despite noise
+    n_spk = 0
+    for step in range(n_steps):
+        c, s = np.cos(phi), np.sin(phi)
+        if R is None:                                  # all-to-all: one global order parameter
+            C, S = c.mean(), s.mean()
+        else:                                          # local order parameter: average over the square
+            C = uniform_filter(c, size=2 * R + 1, mode="wrap")
+            S = uniform_filter(s, size=2 * R + 1, mode="wrap")
+        coupling = J * (S * c - C * s)
+        phi = phi + dt * (omega + a * s + coupling) + sigma * np.sqrt(dt) * rng.standard_normal(phi.shape)
+        k_old = np.floor((top - spike_phase) / (2 * np.pi))
+        top = np.maximum(top, phi)
+        n_spk += np.count_nonzero(np.floor((top - spike_phase) / (2 * np.pi)) > k_old)
+        if (step + 1) % every == 0:
+            t_rec.append((step + 1) * dt)
+            ph_rec.append(np.mod(phi, 2 * np.pi).astype(np.float32))
+            rate.append(n_spk / phi.size / (every * dt))
+            n_spk = 0
+    return np.array(t_rec), np.array(ph_rec), np.array(rate), phi

@@ -1,0 +1,179 @@
+<div id="UID" style="font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 13px; color: #222; background: #fff; padding: 8px; max-width: 900px;">
+  <div style="margin-bottom: 6px;">
+    <b>dφ<sub>j</sub>/dt = ω + a sin φ<sub>j</sub> + J · mean<sub>k near j</sub> sin(φ<sub>k</sub> − φ<sub>j</sub>) + σ ξ<sub>j</sub>(t)</b>
+    &nbsp; (ω = 1; "near" = square of side 2R+1; R = all → every unit sees the whole sheet)
+  </div>
+  <div style="display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;">
+    <div>
+      <canvas class="sheet" width="384" height="384" style="border: 1px solid #ccc; cursor: crosshair; image-rendering: pixelated;"></canvas>
+      <div style="font-size: 11px; color: #555; width: 384px;">Colour = sin φ: bright = spiking, dark = at rest. <b>Click or drag on the sheet</b> to kick units over threshold.</div>
+    </div>
+    <div style="min-width: 300px; flex: 1;">
+      <div class="sliders"></div>
+      <div style="margin: 8px 0; display: flex; flex-wrap: wrap; gap: 4px;">
+        <button class="b-play">Pause</button>
+        <button class="b-rest">All at rest</button>
+        <button class="b-rand">Random phases</button>
+        <button class="b-cut">Cut: erase left half</button>
+      </div>
+      <div style="margin: 6px 0;">Presets:
+        <button class="p-waves">Waves</button>
+        <button class="p-spiral">Spirals</button>
+        <button class="p-all">All-to-all</button>
+        <button class="p-nocoup">No coupling</button>
+      </div>
+      <canvas class="trace" width="330" height="90" style="border: 1px solid #ddd;"></canvas>
+      <div class="readout" style="font-size: 12px; color: #333;"></div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const root = document.getElementById("UID");
+  const L = 128, DT = 0.03, OMEGA = 1.0, SPIKE = Math.PI / 2, TWO_PI = 2 * Math.PI;
+  const N = L * L;
+  const phi = new Float64Array(N), top = new Float64Array(N);
+  const c = new Float64Array(N), s = new Float64Array(N), C = new Float64Array(N), S = new Float64Array(N);
+  const tmpC = new Float64Array(N), tmpS = new Float64Array(N);
+  const P = { a: 1.01, sigma: 0.4, J: 2.0, R: 1, speed: 6 };
+  const RMAX = 16;                       // slider value RMAX+1 means "all-to-all"
+  let time = 0, running = true, cutAt = -1, spikesThisFrame = 0;
+  const trace = [];                      // firing rate of the whole sheet, one value per frame
+
+  // ---------- sliders ----------
+  const defs = [["a", "tilt a (excitable if a > 1)", 0.9, 1.2, 0.005], ["sigma", "noise σ", 0, 0.8, 0.01],
+                ["J", "coupling J", 0, 4, 0.05], ["R", "wiring radius R", 1, RMAX + 1, 1], ["speed", "speed", 1, 20, 1]];
+  const sliderBox = root.querySelector(".sliders"), inputs = {}, labels = {};
+  for (const [k, name, lo, hi, st] of defs) {
+    const row = document.createElement("div"); row.style.margin = "3px 0";
+    row.innerHTML = `<span style="display:inline-block;width:175px">${name}</span>` +
+      `<input type="range" min="${lo}" max="${hi}" step="${st}" style="width:150px;vertical-align:middle">` +
+      `<span style="display:inline-block;width:50px;text-align:right"></span>`;
+    sliderBox.appendChild(row);
+    inputs[k] = row.querySelector("input"); labels[k] = row.querySelectorAll("span")[1];
+    inputs[k].addEventListener("input", () => { P[k] = parseFloat(inputs[k].value); showValues(); });
+  }
+  function showValues() {
+    for (const k in inputs) {
+      inputs[k].value = P[k];
+      labels[k].textContent = (k === "R" && P.R > RMAX) ? "all" : (k === "R" || k === "speed" ? P[k] : P[k].toFixed(k === "a" ? 3 : 2));
+    }
+  }
+
+  // ---------- states ----------
+  const restPhase = () => (P.a > OMEGA ? Math.PI + Math.asin(OMEGA / P.a) : 0);
+  const threshold = () => (P.a > OMEGA ? TWO_PI - Math.asin(OMEGA / P.a) : 0);
+  function setAll(f) { for (let i = 0; i < N; i++) { phi[i] = f(i); top[i] = phi[i]; } trace.length = 0; time = 0; cutAt = -1; }
+  function atRest() { const r = restPhase(); setAll(() => r); }
+  function poke(cx, cy, rad) {
+    const th = threshold() + 0.8;
+    for (let y = -rad; y <= rad; y++) for (let x = -rad; x <= rad; x++) {
+      if (x * x + y * y > rad * rad) continue;
+      const i = ((cy + y + L) % L) * L + ((cx + x + L) % L);
+      phi[i] = th + TWO_PI * Math.floor((phi[i] - th) / TWO_PI + 1); top[i] = Math.max(top[i], phi[i]);
+    }
+  }
+  function cut() { const r = restPhase(); for (let y = 0; y < L; y++) for (let x = 0; x < L / 2; x++) { const i = y * L + x; phi[i] = r + TWO_PI * Math.round((phi[i] - r) / TWO_PI); top[i] = Math.max(top[i], phi[i]); } }
+
+  // ---------- one Euler step ----------
+  function boxMean(src, tmp, dst, R) {         // mean over a (2R+1)^2 square, periodic borders
+    const w = 2 * R + 1;
+    for (let y = 0; y < L; y++) {              // rows
+      const o = y * L; let acc = 0;
+      for (let d = -R; d <= R; d++) acc += src[o + ((d + L) % L)];
+      for (let x = 0; x < L; x++) { tmp[o + x] = acc; acc += src[o + (x + R + 1) % L] - src[o + (x - R + L) % L]; }
+    }
+    for (let x = 0; x < L; x++) {              // columns
+      let acc = 0;
+      for (let d = -R; d <= R; d++) acc += tmp[((d + L) % L) * L + x];
+      for (let y = 0; y < L; y++) { dst[y * L + x] = acc / (w * w); acc += tmp[((y + R + 1) % L) * L + x] - tmp[((y - R + L) % L) * L + x]; }
+    }
+  }
+  let spare = null;
+  function gauss() {                           // Box-Muller
+    if (spare !== null) { const g = spare; spare = null; return g; }
+    let u = 0, v = 0; while (u === 0) u = Math.random(); v = Math.random();
+    const m = Math.sqrt(-2 * Math.log(u)); spare = m * Math.sin(TWO_PI * v); return m * Math.cos(TWO_PI * v);
+  }
+  function step() {
+    for (let i = 0; i < N; i++) { c[i] = Math.cos(phi[i]); s[i] = Math.sin(phi[i]); }
+    const all = P.R > RMAX;
+    let Cg = 0, Sg = 0;
+    if (all) { for (let i = 0; i < N; i++) { Cg += c[i]; Sg += s[i]; } Cg /= N; Sg /= N; }
+    else { boxMean(c, tmpC, C, P.R); boxMean(s, tmpS, S, P.R); }
+    const nz = P.sigma * Math.sqrt(DT);
+    for (let i = 0; i < N; i++) {
+      const Ci = all ? Cg : C[i], Si = all ? Sg : S[i];
+      const coupling = P.J * (Si * c[i] - Ci * s[i]);          // = J * mean sin(phi_k - phi_i)
+      phi[i] += DT * (OMEGA + P.a * s[i] + coupling) + nz * gauss();
+      if (phi[i] > top[i]) {                                     // count a spike once per turn
+        if (Math.floor((phi[i] - SPIKE) / TWO_PI) > Math.floor((top[i] - SPIKE) / TWO_PI)) spikesThisFrame++;
+        top[i] = phi[i];
+      }
+      if (phi[i] > 200 && top[i] > 200) { phi[i] -= 30 * TWO_PI; top[i] -= 30 * TWO_PI; }
+    }
+    time += DT;
+    if (cutAt > 0 && time >= cutAt) { cut(); cutAt = -1; }
+  }
+
+  // ---------- drawing ----------
+  const stops = [[0, 0, 4], [40, 11, 84], [101, 21, 110], [159, 42, 99], [212, 72, 66], [245, 125, 21], [252, 255, 164]];
+  const lut = [];
+  for (let k = 0; k < 256; k++) {
+    const x = k / 255 * (stops.length - 1), j = Math.min(stops.length - 2, Math.floor(x)), f = x - j;
+    lut.push(stops[j].map((v, m) => Math.round(v + f * (stops[j + 1][m] - v))));
+  }
+  const cv = root.querySelector(".sheet"), ctx = cv.getContext("2d");
+  const off = document.createElement("canvas"); off.width = L; off.height = L;
+  const octx = off.getContext("2d"), img = octx.createImageData(L, L);
+  const tr = root.querySelector(".trace"), tctx = tr.getContext("2d");
+  const readout = root.querySelector(".readout");
+  function draw() {
+    let Cg = 0, Sg = 0;
+    for (let i = 0; i < N; i++) {
+      const sv = Math.sin(phi[i]); Cg += Math.cos(phi[i]); Sg += sv;
+      const col = lut[Math.max(0, Math.min(255, Math.round((sv + 1) * 127.5)))];
+      img.data[4 * i] = col[0]; img.data[4 * i + 1] = col[1]; img.data[4 * i + 2] = col[2]; img.data[4 * i + 3] = 255;
+    }
+    octx.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(off, 0, 0, cv.width, cv.height);
+    // rate trace
+    tctx.clearRect(0, 0, tr.width, tr.height);
+    const ymax = Math.max(0.1, ...trace);
+    tctx.strokeStyle = "#222"; tctx.beginPath();
+    trace.forEach((v, k) => { const x = k / 300 * tr.width, y = tr.height - 4 - v / ymax * (tr.height - 16); k ? tctx.lineTo(x, y) : tctx.moveTo(x, y); });
+    tctx.stroke(); tctx.fillStyle = "#555"; tctx.font = "11px sans-serif";
+    tctx.fillText("firing rate of the whole sheet (last ~300 frames)", 4, 11);
+    const Rg = Math.hypot(Cg, Sg) / N;
+    readout.innerHTML = `time ${time.toFixed(0)} &nbsp;|&nbsp; rate ${(trace[trace.length - 1] || 0).toFixed(3)} spikes per unit per time &nbsp;|&nbsp; global R = ${Rg.toFixed(2)}`;
+  }
+  function frame() {
+    if (running) {
+      spikesThisFrame = 0;
+      for (let k = 0; k < P.speed; k++) step();
+      trace.push(spikesThisFrame / N / (P.speed * DT)); if (trace.length > 300) trace.shift();
+    }
+    draw();
+    if (document.body.contains(root)) requestAnimationFrame(frame);
+  }
+
+  // ---------- controls ----------
+  let drag = false;
+  function pokeAt(ev) { const r = cv.getBoundingClientRect(); poke(Math.floor((ev.clientX - r.left) / r.width * L), Math.floor((ev.clientY - r.top) / r.height * L), 3); }
+  cv.addEventListener("mousedown", (ev) => { drag = true; pokeAt(ev); });
+  cv.addEventListener("mousemove", (ev) => { if (drag) pokeAt(ev); });
+  window.addEventListener("mouseup", () => { drag = false; });
+  const btn = (cls, f) => root.querySelector(cls).addEventListener("click", f);
+  btn(".b-play", () => { running = !running; root.querySelector(".b-play").textContent = running ? "Pause" : "Play"; });
+  btn(".b-rest", atRest);
+  btn(".b-rand", () => setAll(() => Math.random() * TWO_PI));
+  btn(".b-cut", cut);
+  function preset(p, init) { Object.assign(P, p); showValues(); init(); }
+  btn(".p-waves", () => preset({ a: 1.01, sigma: 0.4, J: 2.0, R: 1 }, atRest));
+  btn(".p-all", () => preset({ a: 1.01, sigma: 0.4, J: 2.0, R: RMAX + 1 }, atRest));
+  btn(".p-nocoup", () => preset({ a: 1.01, sigma: 0.4, J: 0.0, R: 1 }, atRest));
+  btn(".p-spiral", () => preset({ a: 1.01, sigma: 0.02, J: 2.0, R: 1 }, () => { atRest(); poke(L / 2, L / 2, 6); cutAt = 40; }));
+
+  showValues(); atRest(); requestAnimationFrame(frame);
+})();
+</script>

@@ -239,6 +239,45 @@ def ott_antonsen_ar(omega=1.0, a=1.0, J=1.0, sigma=0.5, T=200.0, dt=1e-3, rec_dt
     return np.arange(len(Z)) * rec_every * dt, Z
 
 
+@njit(cache=True)
+def _oa_noisy_run(a, J, sigma, omega, eta, dt, n_steps, rec_every, R0, Psi0, seed):
+    np.random.seed(seed)
+    R, P = R0, Psi0
+    s = np.sqrt(2.0 * eta * dt)
+    n_out = n_steps // rec_every
+    out = np.zeros((n_out, 2))
+    for t in range(n_steps):
+        if t % rec_every == 0 and t // rec_every < n_out:
+            out[t // rec_every, 0] = R
+            out[t // rec_every, 1] = P
+        dR = 0.5 * R * (J * (1.0 - R * R) - sigma * sigma) - 0.5 * a * (1.0 - R * R) * np.cos(P)
+        dP = omega + a * (1.0 + R * R) * np.sin(P) / (2.0 * R)
+        R = R + dt * dR
+        P = P + dt * dP + s * np.random.standard_normal()
+        R = min(max(R, 1e-6), 1.0 - 1e-9)
+    return out
+
+
+def ott_antonsen_noisy(a=0.973, J=1.25, sigma=0.6725, omega=1.0, eta=1e-4, T=2000.0, dt=0.05, rec_dt=0.5,
+                       R0=0.5, Psi0=0.0, seed=0, with_rate=True):
+    """Two-variable active-rotator mean field (coherence R, mean phase Psi) with a small additive noise
+    on the mean phase, as in the whole-brain model of Rabuffo et al. (Phys Rev Research, 2026):
+        dR/dt   = R/2 [J (1 - R^2) - sigma^2] - (a/2)(1 - R^2) cos(Psi)
+        dPsi/dt = omega + a (1 + R^2) sin(Psi) / (2 R) + noise (intensity eta)
+    Defaults = the paper's critical regime (a = 0.973; subcritical 0.979, supercritical 0.967).
+    Returns t, R, Psi and, if with_rate, the population firing rate (flux through the spike phase,
+    computed from the wrapped-Cauchy phase distribution that the two numbers describe)."""
+    rec_every = max(1, int(round(rec_dt / dt)))
+    out = _oa_noisy_run(a, J, sigma, omega, eta, dt, int(round(T / dt)), rec_every, R0, Psi0, seed)
+    t = np.arange(len(out)) * rec_every * dt
+    R, Psi = out[:, 0], out[:, 1]
+    if not with_rate:
+        return t, R, Psi
+    Z = R * np.exp(1j * Psi)
+    Zk = Z[:, None] ** np.arange(80)[None, :]
+    return t, R, Psi, rotator_rate(Zk, omega=omega, a=a, J=J, sigma=sigma)
+
+
 # ----------------------------------------------------------------------------- Wilson–Cowan E–I pair
 WC = dict(wEE=16.0, wEI=12.0, wIE=15.0, wII=3.0, aE=1.3, thE=4.0, aI=2.0, thI=3.7, tauE=1.0, tauI=1.0)
 
