@@ -3,6 +3,7 @@ scipy
 matplotlib
 seaborn
 pandas
+networkx
 numba
 ipywidgets
 torch

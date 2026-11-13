@@ -102,3 +102,51 @@ def mpr_network(W, G, T=60_000.0, dt=0.01, rec_dt=1.0, eta=-4.6, J=14.5, delta=0
                         noise_r, noise_v, dt, n_steps, rec_every, seed, r0, v0, stim)
     t = (np.arange(r.shape[0]) + 1) * rec_dt
     return t, r, v
+
+
+# ---------------------------------------------------------------- Hopf (Stuart-Landau) whole-brain model
+@njit(cache=True)
+def _hopf_net_run(W, G, a, omega, sigma, dt, n_steps, rec_every, seed, x0, y0):
+    np.random.seed(seed)
+    N = W.shape[0]
+    x = x0.copy(); y = y0.copy()
+    s = W.sum(1)
+    n_rec = n_steps // rec_every
+    X = np.empty((n_rec, N)); Y = np.empty((n_rec, N))
+    k = 0
+    sq = sigma * np.sqrt(dt)
+    for step in range(n_steps):
+        cx = W @ x - s * x                 # sum_j W_ij (x_j - x_i): diffusive coupling
+        cy = W @ y - s * y
+        rr = x * x + y * y
+        dx = (a - rr) * x - omega * y + G * cx
+        dy = (a - rr) * y + omega * x + G * cy
+        x = x + dt * dx + sq * np.random.standard_normal(N)
+        y = y + dt * dy + sq * np.random.standard_normal(N)
+        if (step + 1) % rec_every == 0:
+            X[k] = x; Y[k] = y; k += 1
+    return X, Y
+
+
+def hopf_network(W, G, a=-0.02, f=0.05, sigma=0.02, T=600.0, dt=0.1, TR=2.0, seed=0, transient=60.0):
+    """Hopf (Stuart-Landau) oscillator in every region, diffusively coupled through the connectome
+    (Deco et al. 2017): the simplest model that works directly at the time scale of fMRI.
+
+        dx_i/dt = (a_i - x_i^2 - y_i^2) x_i - omega_i y_i + G sum_j W_ij (x_j - x_i) + sigma xi
+        dy_i/dt = (a_i - x_i^2 - y_i^2) y_i + omega_i x_i + G sum_j W_ij (y_j - y_i) + sigma xi
+
+    a < 0: noisy damped oscillation (below the Hopf bifurcation); a > 0: self-sustained oscillation.
+    f: intrinsic frequency in Hz (scalar or one per region), omega = 2 pi f.
+    T, dt, TR, transient in SECONDS. Returns t and x (time x regions), sampled every TR, as a BOLD-like signal.
+    """
+    N = W.shape[0]
+    a = np.full(N, float(a)) if np.isscalar(a) else np.asarray(a, dtype=float)
+    omega = 2 * np.pi * (np.full(N, float(f)) if np.isscalar(f) else np.asarray(f, dtype=float))
+    rng = np.random.default_rng(seed)
+    rec_every = max(1, int(round(TR / dt)))
+    n_steps = int(round((T + transient) / dt))
+    X, _ = _hopf_net_run(np.ascontiguousarray(W, dtype=np.float64), float(G), a, omega, float(sigma), dt,
+                         n_steps, rec_every, seed, 0.1 * rng.standard_normal(N), 0.1 * rng.standard_normal(N))
+    t = (np.arange(X.shape[0]) + 1) * TR - transient
+    keep = t > 0
+    return t[keep], X[keep]
